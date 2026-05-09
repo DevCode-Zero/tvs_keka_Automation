@@ -4,7 +4,7 @@ import { sendTelegramMessage } from "../src/telegram.js";
 import { createResponse } from "../src/utils.js";
 
 export const config = {
-  runtime: "nodejs18.x",
+  runtime: "nodejs",
 };
 
 export default async function handler(request) {
