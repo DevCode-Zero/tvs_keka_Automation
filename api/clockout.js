@@ -1,20 +1,16 @@
-import { getEnv } from "../src/config.js";
-import { clockOut } from "../src/keka.js";
-import { sendTelegramMessage } from "../src/telegram.js";
-import { isWeekend, getRandomDelaySeconds, sleep, createResponse } from "../src/utils.js";
+const { getEnv } = require("../src/config.js");
+const { clockOut } = require("../src/keka.js");
+const { sendTelegramMessage } = require("../src/telegram.js");
+const { isWeekend, getRandomDelaySeconds, sleep } = require("../src/utils.js");
 
-export const config = {
-  runtime: "nodejs",
-};
-
-export default async function handler(request) {
+module.exports = async function handler(req, res) {
   try {
     const env = getEnv();
 
     if (isWeekend()) {
       const message = "[Keka Clock-Out] Skipped — today is a weekend.";
       console.log(message);
-      return createResponse(200, { status: "skipped", reason: "weekend" });
+      return res.status(200).json({ status: "skipped", reason: "weekend" });
     }
 
     const delay = getRandomDelaySeconds(5);
@@ -26,13 +22,14 @@ export default async function handler(request) {
     const result = await clockOut(env.kekaToken);
 
     if (result.success) {
-      const msg = "<b>✅ Keka Clock-Out Successful</b>\n\n" +
+      const msg =
+        "<b>✅ Keka Clock-Out Successful</b>\n\n" +
         `Time: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST\n` +
         `Date: ${new Date().toLocaleDateString("en-IN")}`;
 
       await sendTelegramMessage(env.telegramBotToken, env.telegramChatId, msg);
 
-      return createResponse(200, { status: "success" });
+      return res.status(200).json({ status: "success" });
     }
 
     await sendTelegramMessage(
@@ -41,10 +38,10 @@ export default async function handler(request) {
       `<b>❌ Keka Clock-Out Failed</b>\n\nError: ${result.error}`
     );
 
-    return createResponse(500, { status: "error", error: result.error });
+    return res.status(500).json({ status: "error", error: result.error });
 
   } catch (error) {
     console.error(`[Keka] Unhandled error: ${error.message}`);
-    return createResponse(500, { status: "error", error: error.message });
+    return res.status(500).json({ status: "error", error: error.message });
   }
-}
+};

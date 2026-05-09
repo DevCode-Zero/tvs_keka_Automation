@@ -2,7 +2,7 @@
   "name": "keka-clockout",
   "version": "1.0.0",
   "description": "Automate Keka web clock-out using Vercel Cron Jobs",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "dev": "vercel dev",
     "deploy": "vercel deploy --prod",

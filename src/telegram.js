@@ -1,6 +1,6 @@
 const TELEGRAM_API = "https://api.telegram.org/bot";
 
-export async function sendTelegramMessage(botToken, chatId, message) {
+async function sendTelegramMessage(botToken, chatId, message) {
   if (!botToken || !chatId) {
     console.log("[Telegram] Skipping — bot token or chat ID not configured.");
     return { success: false, skipped: true };
@@ -38,3 +38,5 @@ export async function sendTelegramMessage(botToken, chatId, message) {
     return { success: false, error: error.message };
   }
 }
+
+module.exports = { sendTelegramMessage };

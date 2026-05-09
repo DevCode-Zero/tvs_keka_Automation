@@ -1,4 +1,4 @@
-export function validateEnv() {
+function validateEnv() {
   const required = ["KEKA_TOKEN"];
   const missing = required.filter((key) => !process.env[key]);
 
@@ -9,7 +9,7 @@ export function validateEnv() {
   }
 }
 
-export function getEnv() {
+function getEnv() {
   validateEnv();
 
   return {
@@ -18,3 +18,5 @@ export function getEnv() {
     telegramChatId: process.env.TELEGRAM_CHAT_ID || null,
   };
 }
+
+module.exports = { validateEnv, getEnv };

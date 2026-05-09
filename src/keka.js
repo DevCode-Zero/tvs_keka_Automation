@@ -1,4 +1,4 @@
-import { getCurrentTimestamp } from "./utils.js";
+const { getCurrentTimestamp } = require("./utils.js");
 
 const KEKA_URL =
   "https://tvsnext.keka.com/k/attendance/api/mytime/attendance/webclockout";
@@ -6,7 +6,7 @@ const KEKA_URL =
 const MAX_RETRIES = 3;
 const TIMEOUT_MS = 30000;
 
-export async function clockOut(kekaToken) {
+async function clockOut(kekaToken) {
   const payload = {
     timestamp: getCurrentTimestamp(),
     attendanceLogSource: 1,
@@ -72,3 +72,5 @@ export async function clockOut(kekaToken) {
   console.error(`[Keka] All ${MAX_RETRIES} attempts failed.`);
   return { success: false, error: lastError.message };
 }
+
+module.exports = { clockOut };
