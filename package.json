@@ -1,0 +1,16 @@
+{
+  "name": "keka-clockout",
+  "version": "1.0.0",
+  "description": "Automate Keka web clock-out using Vercel Cron Jobs",
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod",
+    "lint": "node --check api/*.js src/*.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["keka", "attendance", "clockout", "automation", "vercel-cron"],
+  "license": "MIT"
+}
