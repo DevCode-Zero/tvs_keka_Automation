@@ -17,14 +17,3 @@ export default async function handler() {
     headers: { "Content-Type": "application/json" },
   });
 }
-
-  return createResponse(configValid ? 200 : 503, {
-    status: configValid ? "healthy" : "unhealthy",
-    timestamp: new Date().toISOString(),
-    timezone: "Asia/Kolkata",
-    server_time: new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
-    environment: envVars,
-    day: new Date().toLocaleDateString("en-US", { weekday: "long" }),
-    is_weekend: [0, 6].includes(new Date().getDay()),
-  });
-}
