@@ -1,16 +1,28 @@
 {
   "name": "keka-clockout",
-  "version": "1.0.0",
-  "description": "Automate Keka web clock-out using Vercel Cron Jobs",
+  "version": "2.0.0",
+  "description": "Automate Keka clock-in/out via Playwright + GitHub Actions",
   "type": "commonjs",
   "scripts": {
     "dev": "vercel dev",
     "deploy": "vercel deploy --prod",
-    "lint": "node --check api/*.js src/*.js"
+    "lint": "node --check api/*.js src/*.js scripts/*.js",
+    "clock-in": "KEKA_ACTION=in node scripts/keka-action.js",
+    "clock-out": "KEKA_ACTION=out node scripts/keka-action.js"
   },
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["keka", "attendance", "clockout", "automation", "vercel-cron"],
-  "license": "MIT"
+  "keywords": [
+    "keka",
+    "attendance",
+    "clockout",
+    "automation",
+    "github-actions",
+    "playwright"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.61.0"
+  }
 }

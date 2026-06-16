@@ -5,3 +5,7 @@ node_modules/
 *.log
 test-local.js
 .vercel
+
+# Playwright browser cache
+playwright-browsers/
+~/.cache/ms-playwright/

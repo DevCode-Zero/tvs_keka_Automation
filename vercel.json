@@ -1,8 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/clockout",
-      "schedule": "0 13 * * 1-5"
-    }
-  ]
-}
+{}
