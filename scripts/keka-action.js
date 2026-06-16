@@ -50,10 +50,61 @@ async function run() {
     await page.goto(KEKA_URL, { waitUntil: 'networkidle', timeout: 30000 });
 
     console.log(`[${label}] Logging in...`);
-    await page.waitForSelector('input[type="email"]', { timeout: 15000 });
-    await page.fill('input[type="email"]', email);
-    await page.fill('input[type="password"]', password);
-    await page.click('button[type="submit"]');
+
+    const emailSelectors = [
+      'input[type="email"]',
+      'input[name="email"]',
+      'input[name="Email"]',
+      'input#email',
+      'input#Email',
+      'input#email_or_phone',
+      'input[placeholder*="email" i]',
+      'input[placeholder*="Email" i]',
+    ];
+    const passwordSelectors = [
+      'input[type="password"]',
+      'input[name="password"]',
+      'input[name="Password"]',
+      'input#password',
+      'input#Password',
+    ];
+
+    let emailInput = null;
+    for (const sel of emailSelectors) {
+      emailInput = await page.$(sel);
+      if (emailInput) {
+        console.log(`[${label}] Found email field via: ${sel}`);
+        break;
+      }
+    }
+    if (!emailInput) {
+      await page.screenshot({ path: `/tmp/keka-${label}-debug.png`, fullPage: true });
+      console.log(`[${label}] Debug screenshot saved`);
+      throw new Error('Could not find email input field on Keka login page');
+    }
+
+    let passwordInput = null;
+    for (const sel of passwordSelectors) {
+      passwordInput = await page.$(sel);
+      if (passwordInput) {
+        console.log(`[${label}] Found password field via: ${sel}`);
+        break;
+      }
+    }
+    if (!passwordInput) {
+      throw new Error('Could not find password input field on Keka login page');
+    }
+
+    await emailInput.fill(email);
+    await passwordInput.fill(password);
+
+    const submitButton = await page.$('button[type="submit"]') || await page.$('button:has-text("Sign In")') || await page.$('button:has-text("Login")');
+    if (submitButton) {
+      await submitButton.click();
+    } else {
+      await page.keyboard.press('Enter');
+    }
+
     await page.waitForLoadState('networkidle', { timeout: 30000 });
     console.log(`[${label}] Login submitted, waiting for dashboard...`);
     await page.waitForTimeout(3000);
