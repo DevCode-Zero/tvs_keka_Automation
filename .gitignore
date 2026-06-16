@@ -9,3 +9,4 @@ test-local.js
 # Playwright browser cache
 playwright-browsers/
 ~/.cache/ms-playwright/
+eng.traineddata
