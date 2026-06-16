@@ -1,5 +1,5 @@
 const { getEnv } = require("../src/config.js");
-const { clockOut } = require("../src/keka.js");
+const { submitAttendance } = require("../src/keka.js");
 const { sendTelegramMessage } = require("../src/telegram.js");
 
 module.exports = async function handler(req, res) {
@@ -10,7 +10,7 @@ module.exports = async function handler(req, res) {
 
     console.log("[Test] Manual clock-out triggered.");
 
-    const result = await clockOut(env.kekaToken);
+    const result = await submitAttendance(env.kekaToken, 1);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
 

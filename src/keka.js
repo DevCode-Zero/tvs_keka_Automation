@@ -1,20 +1,36 @@
 const { getCurrentTimestamp } = require("./utils.js");
+const { getToken, clearCache } = require("./auth.js");
+const { getEnv } = require("./config.js");
 
 const KEKA_URL =
-  "https://tvsnext.keka.com/k/attendance/api/mytime/attendance/webclockout";
+  "https://tvsnext.keka.com/k/attendance/api/mytime/attendance/webclockin";
 
 const MAX_RETRIES = 3;
 const TIMEOUT_MS = 30000;
 
-async function clockOut(kekaToken) {
+async function submitAttendance(existingToken, punchStatus) {
+  let kekaToken;
+  try {
+    kekaToken = await getToken(getEnv());
+  } catch {
+    kekaToken = existingToken;
+  }
+  if (!kekaToken) {
+    try {
+      kekaToken = await getToken(getEnv());
+    } catch {}
+  }
+
   const payload = {
     timestamp: getCurrentTimestamp(),
     attendanceLogSource: 1,
     locationAddress: null,
     manualClockinType: 1,
     note: "",
-    originalPunchStatus: 1,
+    originalPunchStatus: punchStatus,
   };
+
+  const label = punchStatus === 0 ? "Clock-In" : "Clock-Out";
 
   let lastError = null;
 
@@ -24,7 +40,7 @@ async function clockOut(kekaToken) {
       const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
       console.log(
-        `[Keka] Attempt ${attempt}/${MAX_RETRIES} — sending clock-out request...`
+        `[Keka] Attempt ${attempt}/${MAX_RETRIES} — sending ${label} request...`
       );
 
       const response = await fetch(KEKA_URL, {
@@ -48,12 +64,28 @@ async function clockOut(kekaToken) {
         );
       }
 
-      console.log(`[Keka] Clock-out successful on attempt ${attempt}.`);
+      console.log(`[Keka] ${label} successful on attempt ${attempt}.`);
       return { success: true, data: responseBody };
 
     } catch (error) {
       lastError = error;
       const isTimeout = error.name === "AbortError";
+
+      if (
+        !isTimeout &&
+        attempt < MAX_RETRIES &&
+        (error.message.includes("HTTP 401") ||
+         error.message.includes("HTTP 403"))
+      ) {
+        console.log(`[Keka] Token rejected on attempt ${attempt}, refreshing...`);
+        clearCache();
+        try {
+          kekaToken = await getToken(getEnv());
+          console.log("[Keka] Token refreshed, retrying...");
+        } catch (refreshError) {
+          console.error(`[Keka] Token refresh failed: ${refreshError.message}`);
+        }
+      }
 
       console.error(
         `[Keka] Attempt ${attempt} failed — ${
@@ -73,4 +105,4 @@ async function clockOut(kekaToken) {
   return { success: false, error: lastError.message };
 }
 
-module.exports = { clockOut };
+module.exports = { submitAttendance };

@@ -8,22 +8,22 @@ module.exports = async function handler(req, res) {
     const env = getEnv();
 
     if (isWeekend()) {
-      const message = "[Keka Clock-Out] Skipped — today is a weekend.";
+      const message = "[Keka Clock-In] Skipped — today is a weekend.";
       console.log(message);
       return res.status(200).json({ status: "skipped", reason: "weekend" });
     }
 
-    const delay = getRandomDelaySeconds(10);
+    const delay = getRandomDelaySeconds(5);
     if (delay > 0) {
-      console.log(`[Keka] Waiting ${delay}s before clock-out (random delay).`);
+      console.log(`[Keka] Waiting ${delay}s before clock-in (random delay).`);
       await sleep(delay);
     }
 
-    const result = await submitAttendance(env.kekaToken, 1);
+    const result = await submitAttendance(env.kekaToken, 0);
 
     if (result.success) {
       const msg =
-        "<b>✅ Keka Clock-Out Successful</b>\n\n" +
+        "<b>✅ Keka Clock-In Successful</b>\n\n" +
         `Time: ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST\n` +
         `Date: ${new Date().toLocaleDateString("en-IN")}`;
 
@@ -35,7 +35,7 @@ module.exports = async function handler(req, res) {
     await sendTelegramMessage(
       env.telegramBotToken,
       env.telegramChatId,
-      `<b>❌ Keka Clock-Out Failed</b>\n\nError: ${result.error}`
+      `<b>❌ Keka Clock-In Failed</b>\n\nError: ${result.error}`
     );
 
     return res.status(500).json({ status: "error", error: result.error });
