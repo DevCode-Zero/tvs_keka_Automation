@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const fs = require('fs');
 const Tesseract = require('tesseract.js');
 const sharp = require('sharp');
 const { isWeekend, getRandomDelaySeconds, sleep } = require('../src/utils.js');
@@ -7,6 +8,7 @@ const { sendTelegramMessage } = require('../src/telegram.js');
 const KEKA_URL = 'https://tvsnext.keka.com';
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || null;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID || null;
+const STORAGE_FILE = process.env.STORAGE_FILE || '/tmp/keka-state.json';
 
 async function solveCaptcha(page) {
   try {
@@ -16,7 +18,6 @@ async function solveCaptcha(page) {
     if (!src || !src.startsWith('data:image')) return null;
 
     const buf = Buffer.from(src.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-
     const processed = await sharp(buf).grayscale().normalise().threshold(128).resize(400, 140, { fit: 'fill' }).sharpen().png().toBuffer();
 
     const { data } = await Tesseract.recognize(processed, 'eng', {
@@ -31,64 +32,49 @@ async function solveCaptcha(page) {
   }
 }
 
-async function login(page, email, password, label) {
+async function doLogin(page, email, password, label) {
   console.log(`[${label}] Logging in...`);
 
   await page.waitForSelector('#email', { timeout: 10000 });
   await page.fill('#email', email);
   await page.fill('#password', password);
 
-  const loginBtn = await page.$('button:has-text("Login")');
+  const captchaInput = await page.$('#captcha');
+  const captchaVisible = captchaInput && await captchaInput.isVisible();
 
-  if (loginBtn) {
-    // Check if captcha is required
-    const captchaInput = await page.$('#captcha');
-    const captchaVisible = captchaInput && await captchaInput.isVisible();
-
-    if (captchaVisible) {
-      console.log(`[${label}] Captcha required — solving...`);
-      const text = await solveCaptcha(page);
-      if (text) {
-        console.log(`[${label}] Captcha OCR: "${text}"`);
-        await captchaInput.fill(text);
-      }
+  if (captchaVisible) {
+    console.log(`[${label}] Captcha required — solving...`);
+    const text = await solveCaptcha(page);
+    if (text) {
+      console.log(`[${label}] Captcha OCR: "${text}"`);
+      await captchaInput.fill(text);
     }
-
-    await loginBtn.click();
-    await page.waitForLoadState('networkidle', { timeout: 30000 });
-    await page.waitForTimeout(2000);
-
-    // If still on login page, OCR was wrong — retry once
-    if (captchaVisible && page.url().includes('/Account/KekaLogin')) {
-      console.log(`[${label}] Captcha wrong — retrying with refreshed captcha...`);
-      const refreshBtn = await page.$('#retryCaptcha');
-      if (refreshBtn) await refreshBtn.click();
-      await page.waitForTimeout(1500);
-
-      await page.fill('#email', email);
-      await page.fill('#password', password);
-
-      const newText = await solveCaptcha(page);
-      if (newText) {
-        console.log(`[${label}] Captcha OCR (retry): "${newText}"`);
-        const newInput = await page.$('#captcha');
-        if (newInput) await newInput.fill(newText);
-      }
-
-      await loginBtn.click();
-      await page.waitForLoadState('networkidle', { timeout: 30000 });
-      await page.waitForTimeout(2000);
-    }
-  } else {
-    await page.keyboard.press('Enter');
-    await page.waitForLoadState('networkidle', { timeout: 30000 });
   }
 
+  const btn = await page.$('button:has-text("Login")');
+  if (btn) await btn.click();
+  else await page.keyboard.press('Enter');
+
+  await page.waitForLoadState('networkidle', { timeout: 30000 });
+  await page.waitForTimeout(3000);
+
   if (page.url().includes('/Account/KekaLogin')) {
-    throw new Error('Login failed — captcha could not be solved');
+    throw new Error('Login failed (captcha or invalid credentials). Run locally with HEADED=true to login manually once.');
   }
 
   console.log(`[${label}] Login successful.`);
+}
+
+async function isLoggedIn(page) {
+  await page.goto(KEKA_URL, { waitUntil: 'networkidle', timeout: 30000 });
+  // If SPA redirects to login, we're not logged in
+  const url = page.url();
+  if (url.includes('/Account/KekaLogin') || url.includes('/connect/authorize')) {
+    return false;
+  }
+  // Wait for SPA to fully load
+  await page.waitForTimeout(3000);
+  return !page.url().includes('Account') && !page.url().includes('authorize');
 }
 
 async function clickPunchButton(page, action, label) {
@@ -100,7 +86,7 @@ async function clickPunchButton(page, action, label) {
   const selectors = [
     `button:has-text("${buttonText}")`,
     `a:has-text("${buttonText}")`,
-    `[class*="clock"]:has-text("${buttonText}")`,
+    `[class*="clock"]`,
     `text="${buttonText}"`,
     `#webClockInBtn`,
     `[data-testid*="clock"]`,
@@ -110,22 +96,21 @@ async function clickPunchButton(page, action, label) {
   for (const sel of selectors) {
     const els = await page.$$(sel);
     for (const el of els) {
-      try {
-        await el.click({ timeout: 3000 });
-        console.log(`[${label}] Clicked: ${sel}`);
-        return true;
-      } catch {}
+      const text = await el.textContent();
+      if (text && (text.includes('Clock In') || text.includes('Clock Out') || text.includes('Punch'))) {
+        try { await el.click({ timeout: 3000 }); console.log(`[${label}] Clicked: ${sel}`); return true; } catch {}
+      }
     }
   }
 
-  // Tree walker as last resort
+  // Tree walker
   const found = await page.evaluate((text) => {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walker.nextNode())) {
       if (node.textContent.trim() === text) {
-        const parent = node.parentElement;
-        if (parent) { parent.click(); return true; }
+        const p = node.parentElement;
+        if (p) { p.click(); return true; }
       }
     }
     return false;
@@ -133,9 +118,8 @@ async function clickPunchButton(page, action, label) {
 
   if (found) return true;
 
-  // Dump page text for debugging
   const pageText = await page.evaluate(() => document.body.innerText);
-  console.log(`[${label}] Page text (first 1000):`, pageText?.substring(0, 1000));
+  console.log(`[${label}] Page text (first 2000):`, pageText?.substring(0, 2000));
   return false;
 }
 
@@ -170,22 +154,37 @@ async function run() {
     await sleep(delay);
   }
 
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
+  const headless = process.env.HEADED ? false : true;
+  const browser = await chromium.launch({ headless });
+
+  const contextOptions = {
     viewport: { width: 1280, height: 720 },
     locale: 'en-IN',
     timezoneId: 'Asia/Kolkata',
-  });
+  };
+
+  // Load saved session if available
+  if (fs.existsSync(STORAGE_FILE)) {
+    contextOptions.storageState = STORAGE_FILE;
+    console.log(`[${label}] Loading saved session from ${STORAGE_FILE}`);
+  }
+
+  const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
 
   try {
-    await page.goto(KEKA_URL, { waitUntil: 'networkidle', timeout: 30000 });
-    await page.waitForURL('**/Account/KekaLogin**', { timeout: 20000 });
+    const loggedIn = await isLoggedIn(page);
+    if (!loggedIn) {
+      console.log(`[${label}] No valid session — need to login.`);
+      await page.waitForURL('**/Account/KekaLogin**', { timeout: 20000 });
+      await doLogin(page, email, password, label);
+      await context.storageState({ path: STORAGE_FILE });
+      console.log(`[${label}] Session saved to ${STORAGE_FILE}`);
+    } else {
+      console.log(`[${label}] Using saved session.`);
+    }
 
-    await login(page, email, password, label);
-
-    console.log(`[${label}] Post-login URL: ${page.url()}`);
-
+    console.log(`[${label}] Navigating to attendance...`);
     await page.goto(`${KEKA_URL}/k/attendance`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(5000);
 

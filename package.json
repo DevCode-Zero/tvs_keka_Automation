@@ -8,7 +8,8 @@
     "deploy": "vercel deploy --prod",
     "lint": "node --check api/*.js src/*.js scripts/*.js",
     "clock-in": "KEKA_ACTION=in node scripts/keka-action.js",
-    "clock-out": "KEKA_ACTION=out node scripts/keka-action.js"
+    "clock-out": "KEKA_ACTION=out node scripts/keka-action.js",
+    "setup": "HEADED=true TEST_MODE=1 KEKA_ACTION=in node scripts/keka-action.js"
   },
   "engines": {
     "node": ">=18.0.0"
