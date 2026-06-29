@@ -12,33 +12,48 @@ const STORAGE_FILE = process.env.STORAGE_FILE || '/tmp/keka-state.json';
 
 async function solveCaptcha(page) {
   try {
-    const img = await page.$('#imgCaptcha');
+    // Wait for captcha image to be ready with data:image src
+    const img = await page.waitForSelector('#imgCaptcha[src*="data:image"]', { timeout: 8000 }).catch(() => null);
     if (!img) {
-      console.log('[Captcha] #imgCaptcha not found');
+      console.log('[Captcha] #imgCaptcha with data:image src not found');
       return null;
     }
 
     const src = await img.getAttribute('src');
-    if (!src || !src.startsWith('data:image')) {
-      console.log('[Captcha] src not data:image');
-      return null;
-    }
 
     const buf = Buffer.from(src.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-    const processed = await sharp(buf).grayscale().normalise().threshold(128).resize(400, 140, { fit: 'fill' }).sharpen().png().toBuffer();
 
-    const { data } = await Tesseract.recognize(processed, 'eng', {
-      logger: () => {},
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-      tessedit_pageseg_mode: '7',
-    });
+    // Try multiple OCR strategies and pick the best result
+    const strategies = [
+      { threshold: 128, negate: false, desc: 'default' },
+      { threshold: 100, negate: false, desc: 'lower threshold' },
+      { threshold: 150, negate: false, desc: 'higher threshold' },
+      { threshold: 128, negate: true, desc: 'inverted' },
+    ];
 
-    const result = data.text.replace(/[^A-Z0-9]/g, '').trim();
-    if (result.length >= 4) {
-      console.log(`[Captcha] OCR: "${result}"`);
-      return result;
+    let best = '';
+
+    for (const s of strategies) {
+      let processed = sharp(buf).grayscale().normalise().resize(500, 175, { fit: 'fill' });
+      if (s.negate) processed = processed.negate();
+      processed = processed.threshold(s.threshold).sharpen().png().toBuffer();
+
+      const png = await processed;
+      const { data } = await Tesseract.recognize(png, 'eng', {
+        logger: () => {},
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
+        tessedit_pageseg_mode: '7',
+      });
+
+      const text = data.text.replace(/[^A-Za-z0-9]/g, '').trim();
+      if (text.length > best.length) best = text;
     }
-    console.log(`[Captcha] OCR too short: "${result}"`);
+
+    if (best.length >= 4) {
+      console.log(`[Captcha] OCR: "${best}"`);
+      return best.toUpperCase();
+    }
+    console.log(`[Captcha] OCR too short: "${best}"`);
     return null;
   } catch (err) {
     console.log(`[Captcha] Error: ${err.message}`);
@@ -52,7 +67,13 @@ async function doLogin(page, email, password, label) {
   const maxRetries = 5;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    await page.waitForSelector('#email', { timeout: 10000 });
+    // On retry, navigate fresh to login page to avoid stale state
+    if (attempt > 1) {
+      await page.goto(`${KEKA_URL}/Account/KekaLogin`, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(2000);
+    }
+
+    await page.waitForSelector('#email', { timeout: 15000 });
     await page.fill('#email', email);
     await page.fill('#password', password);
 
@@ -63,6 +84,7 @@ async function doLogin(page, email, password, label) {
       console.log(`[${label}] Attempt ${attempt}/${maxRetries} — solving captcha...`);
       const text = await solveCaptcha(page);
       if (text) {
+        console.log(`[${label}] Captcha value: "${text}"`);
         await page.$eval('#captcha', (el, v) => el.value = v, text);
       }
     }
@@ -79,13 +101,10 @@ async function doLogin(page, email, password, label) {
       return;
     }
 
-    console.log(`[${label}] Attempt ${attempt} failed (captcha). Refreshing captcha...`);
-    const refreshBtn = await page.$('#retryCaptcha');
-    if (refreshBtn) await refreshBtn.click();
-    await page.waitForTimeout(2000);
+    console.log(`[${label}] Attempt ${attempt} failed — will retry.`);
   }
 
-  throw new Error('Login failed (captcha or invalid credentials). Run locally with HEADED=true to login manually once.');
+  throw new Error('Login failed after all retries. Run locally with HEADED=true to login manually once.');
 }
 
 async function isLoggedIn(page) {
@@ -226,7 +245,7 @@ async function run() {
       console.log(`[${label}] Screenshot saved`);
     } catch {}
 
-    const failMsg = `<b>❌ ${label} Failed</b>\n\nError: ${error.message}`;
+    const failMsg = `<b>❌ ${label} Failed</b>\n\nError: ${error.message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}`;
     await sendTelegramMessage(BOT_TOKEN, CHAT_ID, failMsg);
     process.exit(1);
   } finally {
