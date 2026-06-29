@@ -85,6 +85,9 @@ async function doLogin(page, email, password, label) {
       if (text) {
         console.log(`[${label}] Captcha value: "${text}"`);
         await page.fill('#captcha', text);
+      } else {
+        console.log(`[${label}] Could not solve captcha — retrying...`);
+        continue;
       }
     }
 
