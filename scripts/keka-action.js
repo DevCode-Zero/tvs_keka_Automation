@@ -12,48 +12,46 @@ const STORAGE_FILE = process.env.STORAGE_FILE || '/tmp/keka-state.json';
 
 async function solveCaptcha(page) {
   try {
-    // Wait for captcha image to be ready with data:image src
-    const img = await page.waitForSelector('#imgCaptcha[src*="data:image"]', { timeout: 8000 }).catch(() => null);
+    // Wait for captcha image to load with a non-empty src
+    const img = await page.waitForSelector('#imgCaptcha[src]', { timeout: 8000 }).catch(() => null);
     if (!img) {
-      console.log('[Captcha] #imgCaptcha with data:image src not found');
+      console.log('[Captcha] #imgCaptcha not found');
       return null;
     }
+    await page.waitForTimeout(500);
 
+    // Try element screenshot first (cleanest capture)
+    const capBuf = await img.screenshot();
+    const processed = await sharp(capBuf).resize(600, 210, { fit: 'fill' }).grayscale().normalise().threshold(150).sharpen().png().toBuffer();
+    const { data: data2 } = await Tesseract.recognize(processed, 'eng', {
+      logger: () => {},
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+      tessedit_pageseg_mode: '7',
+    });
+    let text = data2.text.replace(/[^A-Z0-9]/g, '').trim();
+    if (text.length >= 4 && text.length <= 6) {
+      console.log(`[Captcha] OCR: "${text}"`);
+      return text;
+    }
+
+    // Fallback: decode data:image src directly
     const src = await img.getAttribute('src');
-
-    const buf = Buffer.from(src.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-
-    // Try multiple OCR strategies and pick the best result
-    const strategies = [
-      { threshold: 128, negate: false, desc: 'default' },
-      { threshold: 100, negate: false, desc: 'lower threshold' },
-      { threshold: 150, negate: false, desc: 'higher threshold' },
-      { threshold: 128, negate: true, desc: 'inverted' },
-    ];
-
-    let best = '';
-
-    for (const s of strategies) {
-      let processed = sharp(buf).grayscale().normalise().resize(500, 175, { fit: 'fill' });
-      if (s.negate) processed = processed.negate();
-      processed = processed.threshold(s.threshold).sharpen().png().toBuffer();
-
-      const png = await processed;
-      const { data } = await Tesseract.recognize(png, 'eng', {
+    if (src && src.startsWith('data:image')) {
+      const raw = Buffer.from(src.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+      const png2 = await sharp(raw).resize(600, 210, { fit: 'fill' }).grayscale().normalise().threshold(150).sharpen().png().toBuffer();
+      const { data: data3 } = await Tesseract.recognize(png2, 'eng', {
         logger: () => {},
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
         tessedit_pageseg_mode: '7',
       });
-
-      const text = data.text.replace(/[^A-Za-z0-9]/g, '').trim();
-      if (text.length > best.length) best = text;
+      text = data3.text.replace(/[^A-Z0-9]/g, '').trim();
+      if (text.length >= 4 && text.length <= 6) {
+        console.log(`[Captcha] OCR (data:image): "${text}"`);
+        return text;
+      }
     }
 
-    if (best.length >= 4) {
-      console.log(`[Captcha] OCR: "${best}"`);
-      return best.toUpperCase();
-    }
-    console.log(`[Captcha] OCR too short: "${best}"`);
+    console.log(`[Captcha] OCR rejected (len ${text.length}): "${text}"`);
     return null;
   } catch (err) {
     console.log(`[Captcha] Error: ${err.message}`);
