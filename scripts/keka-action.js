@@ -84,7 +84,7 @@ async function doLogin(page, email, password, label) {
       const text = await solveCaptcha(page);
       if (text) {
         console.log(`[${label}] Captcha value: "${text}"`);
-        await page.$eval('#captcha', (el, v) => el.value = v, text);
+        await page.fill('#captcha', text);
       }
     }
 
