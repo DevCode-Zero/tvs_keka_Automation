@@ -12,7 +12,7 @@
     "setup": "HEADED=true TEST_MODE=1 KEKA_ACTION=in node scripts/keka-action.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.9.0"
   },
   "keywords": [
     "keka",
