@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const Tesseract = require('tesseract.js');
 const sharp = require('sharp');
-const { isWeekend, getRandomDelaySeconds, sleep } = require('../src/utils.js');
+const { isWeekend } = require('../src/utils.js');
 const { sendTelegramMessage } = require('../src/telegram.js');
 
 const KEKA_URL = 'https://tvsnext.keka.com';
@@ -202,12 +202,7 @@ async function run() {
     return;
   }
 
-  const maxDelay = action === 'in' ? (process.env.TEST_MODE ? 0 : 5) : (process.env.TEST_MODE ? 0 : 10);
-  const delay = getRandomDelaySeconds(maxDelay);
-  if (delay > 0) {
-    console.log(`[${label}] Waiting ${delay}s (random delay).`);
-    await sleep(delay);
-  }
+  // Random delay removed — login immediately
 
   const headless = process.env.HEADED ? false : true;
   const browser = await chromium.launch({ headless });
