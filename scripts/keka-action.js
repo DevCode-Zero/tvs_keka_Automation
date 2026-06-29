@@ -12,36 +12,16 @@ const STORAGE_FILE = process.env.STORAGE_FILE || '/tmp/keka-state.json';
 
 async function solveCaptcha(page) {
   try {
-    const captchaContainer = await page.$('#captcha, .captcha-img, [class*="captcha"] img');
-    if (!captchaContainer) {
-      console.log('[Captcha] No captcha container found');
-      return null;
-    }
-
-    const img = await page.$('#imgCaptcha, .captcha-img, [class*="captcha"] img');
+    const img = await page.$('#imgCaptcha');
     if (!img) {
-      console.log('[Captcha] No captcha img element found');
+      console.log('[Captcha] #imgCaptcha not found');
       return null;
     }
 
-    let src = await img.getAttribute('src');
-
-    // If not data:image, try to screenshot the element directly
+    const src = await img.getAttribute('src');
     if (!src || !src.startsWith('data:image')) {
-      console.log('[Captcha] img src is not data:image, taking screenshot instead');
-      const clip = await img.boundingBox();
-      if (!clip) return null;
-      const buf = await page.screenshot({ clip, type: 'png' });
-      const processed = await sharp(buf).grayscale().normalise().threshold(140).resize(400, 140, { fit: 'fill' }).sharpen().negate().png().toBuffer();
-
-      const { data } = await Tesseract.recognize(processed, 'eng', {
-        logger: () => {},
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-        tessedit_pageseg_mode: '7',
-      });
-      const result = data.text.replace(/[^A-Z0-9]/g, '').trim();
-      console.log(`[Captcha] OCR result (screenshot): "${result}"`);
-      return result;
+      console.log('[Captcha] src not data:image');
+      return null;
     }
 
     const buf = Buffer.from(src.replace(/^data:image\/\w+;base64,/, ''), 'base64');
@@ -54,8 +34,12 @@ async function solveCaptcha(page) {
     });
 
     const result = data.text.replace(/[^A-Z0-9]/g, '').trim();
-    console.log(`[Captcha] OCR result (data:image): "${result}"`);
-    return result;
+    if (result.length >= 4) {
+      console.log(`[Captcha] OCR: "${result}"`);
+      return result;
+    }
+    console.log(`[Captcha] OCR too short: "${result}"`);
+    return null;
   } catch (err) {
     console.log(`[Captcha] Error: ${err.message}`);
     return null;
@@ -65,59 +49,43 @@ async function solveCaptcha(page) {
 async function doLogin(page, email, password, label) {
   console.log(`[${label}] Logging in...`);
 
-  await page.waitForSelector('#email', { timeout: 10000 });
-  await page.fill('#email', email);
-  await page.fill('#password', password);
+  const maxRetries = 5;
 
-  const captchaInput = await page.$('#captcha');
-  const captchaVisible = captchaInput && await captchaInput.isVisible();
-
-  if (captchaVisible) {
-    console.log(`[${label}] Captcha required — solving...`);
-    const text = await solveCaptcha(page);
-    if (text) {
-      console.log(`[${label}] Captcha OCR: "${text}"`);
-      await captchaInput.fill(text);
-    }
-  }
-
-  const btn = await page.$('button:has-text("Login")');
-  if (btn) await btn.click();
-  else await page.keyboard.press('Enter');
-
-  await page.waitForLoadState('networkidle', { timeout: 30000 });
-  await page.waitForTimeout(3000);
-
-  if (page.url().includes('/Account/KekaLogin') && captchaVisible) {
-    console.log(`[${label}] Captcha wrong — retrying with refreshed captcha...`);
-    const refreshBtn = await page.$('#retryCaptcha');
-    if (refreshBtn) await refreshBtn.click();
-    await page.waitForTimeout(1500);
-
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    await page.waitForSelector('#email', { timeout: 10000 });
     await page.fill('#email', email);
     await page.fill('#password', password);
 
-    const text2 = await solveCaptcha(page);
-    if (text2) {
-      console.log(`[${label}] Captcha OCR (retry): "${text2}"`);
-      const newInput = await page.$('#captcha');
-      if (newInput) await newInput.fill(text2);
+    const captchaInput = await page.$('#captcha');
+    const captchaVisible = captchaInput && await captchaInput.isVisible();
+
+    if (captchaVisible) {
+      console.log(`[${label}] Attempt ${attempt}/${maxRetries} — solving captcha...`);
+      const text = await solveCaptcha(page);
+      if (text) {
+        await page.$eval('#captcha', (el, v) => el.value = v, text);
+      }
     }
 
-    if (refreshBtn) {
-      const btn2 = await page.$('button:has-text("Login")');
-      if (btn2) await btn2.click();
-      else await page.keyboard.press('Enter');
-      await page.waitForLoadState('networkidle', { timeout: 30000 });
-      await page.waitForTimeout(3000);
+    const btn = await page.$('button:has-text("Login")');
+    if (btn) await btn.click();
+    else await page.keyboard.press('Enter');
+
+    await page.waitForLoadState('networkidle', { timeout: 30000 });
+    await page.waitForTimeout(3000);
+
+    if (!page.url().includes('/Account/KekaLogin')) {
+      console.log(`[${label}] Login successful on attempt ${attempt}.`);
+      return;
     }
+
+    console.log(`[${label}] Attempt ${attempt} failed (captcha). Refreshing captcha...`);
+    const refreshBtn = await page.$('#retryCaptcha');
+    if (refreshBtn) await refreshBtn.click();
+    await page.waitForTimeout(2000);
   }
 
-  if (page.url().includes('/Account/KekaLogin')) {
-    throw new Error('Login failed (captcha or invalid credentials). Run locally with HEADED=true to login manually once.');
-  }
-
-  console.log(`[${label}] Login successful.`);
+  throw new Error('Login failed (captcha or invalid credentials). Run locally with HEADED=true to login manually once.');
 }
 
 async function isLoggedIn(page) {
