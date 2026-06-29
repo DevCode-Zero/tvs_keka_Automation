@@ -67,9 +67,10 @@ async function doLogin(page, email, password, label) {
   const maxRetries = 5;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    // On retry, navigate fresh to login page to avoid stale state
+    // On retry, reload and let SPA redirect to login page
     if (attempt > 1) {
-      await page.goto(`${KEKA_URL}/Account/KekaLogin`, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+      await page.goto(KEKA_URL, { waitUntil: 'networkidle', timeout: 30000 }).catch(() => {});
+      await page.waitForURL('**/Account/KekaLogin**', { timeout: 20000 }).catch(() => {});
       await page.waitForTimeout(2000);
     }
 
@@ -90,13 +91,21 @@ async function doLogin(page, email, password, label) {
     }
 
     const btn = await page.$('button:has-text("Login")');
-    if (btn) await btn.click();
-    else await page.keyboard.press('Enter');
+    if (btn) {
+      await btn.click();
+      console.log(`[${label}] Clicked Login button.`);
+    } else {
+      await page.keyboard.press('Enter');
+      console.log(`[${label}] Pressed Enter.`);
+    }
 
     await page.waitForLoadState('networkidle', { timeout: 30000 });
     await page.waitForTimeout(3000);
 
-    if (!page.url().includes('/Account/KekaLogin')) {
+    const afterUrl = page.url();
+    console.log(`[${label}] Post-login URL: ${afterUrl}`);
+
+    if (!afterUrl.includes('/Account/KekaLogin')) {
       console.log(`[${label}] Login successful on attempt ${attempt}.`);
       return;
     }
