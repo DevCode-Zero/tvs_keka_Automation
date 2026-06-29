@@ -12,10 +12,37 @@ const STORAGE_FILE = process.env.STORAGE_FILE || '/tmp/keka-state.json';
 
 async function solveCaptcha(page) {
   try {
-    const img = await page.$('#imgCaptcha');
-    if (!img) return null;
-    const src = await img.getAttribute('src');
-    if (!src || !src.startsWith('data:image')) return null;
+    const captchaContainer = await page.$('#captcha, .captcha-img, [class*="captcha"] img');
+    if (!captchaContainer) {
+      console.log('[Captcha] No captcha container found');
+      return null;
+    }
+
+    const img = await page.$('#imgCaptcha, .captcha-img, [class*="captcha"] img');
+    if (!img) {
+      console.log('[Captcha] No captcha img element found');
+      return null;
+    }
+
+    let src = await img.getAttribute('src');
+
+    // If not data:image, try to screenshot the element directly
+    if (!src || !src.startsWith('data:image')) {
+      console.log('[Captcha] img src is not data:image, taking screenshot instead');
+      const clip = await img.boundingBox();
+      if (!clip) return null;
+      const buf = await page.screenshot({ clip, type: 'png' });
+      const processed = await sharp(buf).grayscale().normalise().threshold(140).resize(400, 140, { fit: 'fill' }).sharpen().negate().png().toBuffer();
+
+      const { data } = await Tesseract.recognize(processed, 'eng', {
+        logger: () => {},
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+        tessedit_pageseg_mode: '7',
+      });
+      const result = data.text.replace(/[^A-Z0-9]/g, '').trim();
+      console.log(`[Captcha] OCR result (screenshot): "${result}"`);
+      return result;
+    }
 
     const buf = Buffer.from(src.replace(/^data:image\/\w+;base64,/, ''), 'base64');
     const processed = await sharp(buf).grayscale().normalise().threshold(128).resize(400, 140, { fit: 'fill' }).sharpen().png().toBuffer();
@@ -26,8 +53,11 @@ async function solveCaptcha(page) {
       tessedit_pageseg_mode: '7',
     });
 
-    return data.text.replace(/[^A-Z0-9]/g, '').trim();
-  } catch {
+    const result = data.text.replace(/[^A-Z0-9]/g, '').trim();
+    console.log(`[Captcha] OCR result (data:image): "${result}"`);
+    return result;
+  } catch (err) {
+    console.log(`[Captcha] Error: ${err.message}`);
     return null;
   }
 }
@@ -57,6 +87,31 @@ async function doLogin(page, email, password, label) {
 
   await page.waitForLoadState('networkidle', { timeout: 30000 });
   await page.waitForTimeout(3000);
+
+  if (page.url().includes('/Account/KekaLogin') && captchaVisible) {
+    console.log(`[${label}] Captcha wrong — retrying with refreshed captcha...`);
+    const refreshBtn = await page.$('#retryCaptcha');
+    if (refreshBtn) await refreshBtn.click();
+    await page.waitForTimeout(1500);
+
+    await page.fill('#email', email);
+    await page.fill('#password', password);
+
+    const text2 = await solveCaptcha(page);
+    if (text2) {
+      console.log(`[${label}] Captcha OCR (retry): "${text2}"`);
+      const newInput = await page.$('#captcha');
+      if (newInput) await newInput.fill(text2);
+    }
+
+    if (refreshBtn) {
+      const btn2 = await page.$('button:has-text("Login")');
+      if (btn2) await btn2.click();
+      else await page.keyboard.press('Enter');
+      await page.waitForLoadState('networkidle', { timeout: 30000 });
+      await page.waitForTimeout(3000);
+    }
+  }
 
   if (page.url().includes('/Account/KekaLogin')) {
     throw new Error('Login failed (captcha or invalid credentials). Run locally with HEADED=true to login manually once.');
